@@ -1,5 +1,5 @@
 // バージョンを上げてアップロードすると、スマホ側が自動で新しい版に切り替わります
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = 'claude-pwa-' + VERSION;
 const FILES = ['./', './index.html', './manifest.json'];
 

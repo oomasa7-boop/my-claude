@@ -39,7 +39,7 @@
 </head>
 <body>
 <header>
-  <h1>My Claude <small style="font-size:11px;color:#999">v3</small></h1>
+  <h1>My Claude <small style="font-size:11px;color:#999">v4</small></h1>
   <select id="model">
     <option value="claude-sonnet-5-5">Sonnet 5.5</option>
     <option value="claude-opus-5-5">Opus 5.5</option>
@@ -57,7 +57,9 @@
 <div id="login">
   <h2 style="margin:0">ログイン</h2>
   <p>Claude APIキー（sk-ant-…）を入力してください。この端末にだけ保存され、次回から自動でログインします。</p>
-  <input id="keyInput" type="password" placeholder="sk-ant-..." autocomplete="off">
+  <textarea id="keyInput" rows="4" placeholder="sk-ant-api03-..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+    style="background:var(--panel);color:var(--text);border:1px solid #444;border-radius:10px;padding:12px;font-size:14px;font-family:monospace;word-break:break-all"></textarea>
+  <p id="keyInfo"></p>
   <button id="saveKey">保存して始める</button>
 </div>
 <div id="toast"></div>
@@ -84,6 +86,10 @@ function toast(t) { const el = $('toast'); el.textContent = t; el.style.display 
 // ---- 自動ログイン ----
 function showLogin(show) { $('login').style.display = show ? 'flex' : 'none'; }
 showLogin(!apiKey);
+$('keyInput').addEventListener('input', () => {
+  const k = cleanKey($('keyInput').value);
+  $('keyInfo').textContent = k ? '文字数: ' + k.length + '（正しいキーは100文字前後）' : '';
+});
 $('saveKey').onclick = () => {
   const k = cleanKey($('keyInput').value);
   if (!/^sk-ant-[A-Za-z0-9_\-]{20,}$/.test(k)) { toast('APIキーの形式が正しくありません'); return; }
@@ -129,7 +135,13 @@ $('form').onsubmit = async e => {
     });
     if (!res.ok) {
       const body = await res.text();
-      if (res.status === 401) { store.del('apiKey'); apiKey = ''; showLogin(true); }
+      if (res.status === 401) {
+        const info = '文字数 ' + apiKey.length + '、先頭 ' + apiKey.slice(0, 14) + '…末尾 ' + apiKey.slice(-4);
+        store.del('apiKey'); apiKey = ''; $('keyInput').value = ''; showLogin(true);
+        $('keyInfo').textContent = 'キーが違いました（' + info + '）。新しいキーを貼り付けてください。';
+        throw new Error('APIキーが正しくありません（' + info + '）');
+      }
+      if (res.status === 400 && body.includes('credit')) throw new Error('クレジット残高が足りません。platform.claude.com の Billing で購入してください。');
       throw new Error(res.status + ' ' + body);
     }
     const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
