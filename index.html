@@ -39,7 +39,7 @@
 </head>
 <body>
 <header>
-  <h1>My Claude <small style="font-size:11px;color:#999">v4</small></h1>
+  <h1>My Claude <small style="font-size:11px;color:#999">v5</small></h1>
   <select id="model">
     <option value="claude-sonnet-5-5">Sonnet 5.5</option>
     <option value="claude-opus-5-5">Opus 5.5</option>
@@ -57,7 +57,7 @@
 <div id="login">
   <h2 style="margin:0">ログイン</h2>
   <p>Claude APIキー（sk-ant-…）を入力してください。この端末にだけ保存され、次回から自動でログインします。</p>
-  <textarea id="keyInput" rows="4" placeholder="sk-ant-api03-..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+  <textarea id="keyInput" rows="4" placeholder="sk-ant-..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
     style="background:var(--panel);color:var(--text);border:1px solid #444;border-radius:10px;padding:12px;font-size:14px;font-family:monospace;word-break:break-all"></textarea>
   <p id="keyInfo"></p>
   <button id="saveKey">保存して始める</button>
@@ -74,7 +74,7 @@ const store = {
 
 // 全角→半角に変換し、見えない文字・空白・改行を取り除く
 function cleanKey(k) {
-  return (k || '').normalize('NFKC').replace(/[^A-Za-z0-9_\-]/g, '');
+  return (k || '').normalize('NFKC').replace(/[^\x21-\x7E]/g, ''); // 空白・改行・見えない文字だけ除去（記号は残す）
 }
 let apiKey = cleanKey(store.get('apiKey', ''));
 if (apiKey) store.set('apiKey', apiKey);
@@ -88,11 +88,11 @@ function showLogin(show) { $('login').style.display = show ? 'flex' : 'none'; }
 showLogin(!apiKey);
 $('keyInput').addEventListener('input', () => {
   const k = cleanKey($('keyInput').value);
-  $('keyInfo').textContent = k ? '文字数: ' + k.length + '（正しいキーは100文字前後）' : '';
+  $('keyInfo').textContent = k ? '文字数: ' + k.length + '（sk-ant- で始まっていればOK）' : '';
 });
 $('saveKey').onclick = () => {
   const k = cleanKey($('keyInput').value);
-  if (!/^sk-ant-[A-Za-z0-9_\-]{20,}$/.test(k)) { toast('APIキーの形式が正しくありません'); return; }
+  if (!/^sk-ant-\S{20,}$/.test(k)) { toast('APIキーの形式が正しくありません'); return; }
   apiKey = k; store.set('apiKey', k); showLogin(false);
 };
 $('logout').onclick = () => {
