@@ -71,7 +71,12 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch {} }
 };
 
-let apiKey = store.get('apiKey', '');
+// 全角→半角に変換し、見えない文字・空白・改行を取り除く
+function cleanKey(k) {
+  return (k || '').normalize('NFKC').replace(/[^A-Za-z0-9_\-]/g, '');
+}
+let apiKey = cleanKey(store.get('apiKey', ''));
+if (apiKey) store.set('apiKey', apiKey);
 let history = store.get('history', []);
 $('model').value = store.get('model', 'claude-sonnet-5-5');
 
@@ -81,8 +86,8 @@ function toast(t) { const el = $('toast'); el.textContent = t; el.style.display 
 function showLogin(show) { $('login').style.display = show ? 'flex' : 'none'; }
 showLogin(!apiKey);
 $('saveKey').onclick = () => {
-  const k = $('keyInput').value.trim();
-  if (!k.startsWith('sk-ant-')) { toast('APIキーの形式が正しくありません'); return; }
+  const k = cleanKey($('keyInput').value);
+  if (!/^sk-ant-[A-Za-z0-9_\-]{20,}$/.test(k)) { toast('APIキーの形式が正しくありません'); return; }
   apiKey = k; store.set('apiKey', k); showLogin(false);
 };
 $('logout').onclick = () => {
@@ -108,7 +113,7 @@ $('form').onsubmit = async e => {
   if (!text || !apiKey) return;
   $('input').value = ''; $('input').style.height = 'auto';
   history.push({ role: 'user', content: text }); store.set('history', history);
-  add('user', text);
+  const userBubble = add('user', text);
   const bubble = add('assistant', '…');
   $('send').disabled = true;
   let reply = '';
@@ -143,8 +148,11 @@ $('form').onsubmit = async e => {
     }
     history.push({ role: 'assistant', content: reply }); store.set('history', history);
   } catch (err) {
-    bubble.remove(); history.pop(); store.set('history', history);
-    add('err', 'エラー: ' + err.message);
+    bubble.remove(); userBubble.remove(); history.pop(); store.set('history', history);
+    $('input').value = text; // 送れなかった文章を入力欄に戻す
+    let msg = err.message;
+    if (err.name === 'TypeError') msg = '通信できませんでした。電波を確認するか、⚙からAPIキーを入れ直してください（' + err.message + '）';
+    add('err', 'エラー: ' + msg);
   } finally { $('send').disabled = false; }
 };
 
