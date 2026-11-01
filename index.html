@@ -7,7 +7,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icon.svg">
 <title>My Claude</title>
 <style>
   :root { --bg:#1f1e1c; --panel:#2b2a27; --text:#eee; --sub:#999; --accent:#d97757; --me:#3a3936; }
@@ -40,7 +39,7 @@
 </head>
 <body>
 <header>
-  <h1>My Claude</h1>
+  <h1>My Claude <small style="font-size:11px;color:#999">v3</small></h1>
   <select id="model">
     <option value="claude-sonnet-5-5">Sonnet 5.5</option>
     <option value="claude-opus-5-5">Opus 5.5</option>
@@ -150,8 +149,14 @@ $('form').onsubmit = async e => {
   } catch (err) {
     bubble.remove(); userBubble.remove(); history.pop(); store.set('history', history);
     $('input').value = text; // 送れなかった文章を入力欄に戻す
-    let msg = err.message;
-    if (err.name === 'TypeError') msg = '通信できませんでした。電波を確認するか、⚙からAPIキーを入れ直してください（' + err.message + '）';
+    let msg = err.name + ': ' + err.message;
+    if (err.name === 'TypeError') {
+      // 原因の切り分け：キーなしでAPIに届くか試す
+      let probe;
+      try { const r = await fetch('https://api.anthropic.com/v1/models'); probe = 'APIには届く(' + r.status + ')'; }
+      catch (e2) { probe = 'APIに届かない(' + e2.message + ')'; }
+      msg += '\n診断: ' + probe + ' / キー長 ' + apiKey.length + ' / 先頭 ' + apiKey.slice(0, 10);
+    }
     add('err', 'エラー: ' + msg);
   } finally { $('send').disabled = false; }
 };
@@ -162,10 +167,13 @@ if ('serviceWorker' in navigator) {
     // アプリを開いた時・画面に戻った時に新しい版を確認
     document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update(); });
   });
+  // 初回インストール時は再読み込みしない（古い版から切り替わった時だけ）
+  const hadController = !!navigator.serviceWorker.controller;
   let reloaded = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloaded) return; reloaded = true;
-    if (navigator.serviceWorker.controller) { toast('新しいバージョンに更新しました'); setTimeout(() => location.reload(), 800); }
+    if (reloaded || !hadController) return; reloaded = true;
+    if ($('send').disabled) return; // 送信中は邪魔しない（次に開いた時に新しい版になる）
+    toast('新しいバージョンに更新しました'); setTimeout(() => location.reload(), 800);
   });
 }
 </script>
