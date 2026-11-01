@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f1e1c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>My Claude</title>
+<style>
+  :root { --bg:#1f1e1c; --panel:#2b2a27; --text:#eee; --sub:#999; --accent:#d97757; --me:#3a3936; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font-family:-apple-system,"Hiragino Sans",sans-serif; font-size:16px; }
+  body { display:flex; flex-direction:column; padding-top:env(safe-area-inset-top); }
+  header { display:flex; align-items:center; gap:8px; padding:10px 16px; border-bottom:1px solid #333; }
+  header h1 { font-size:17px; margin:0; flex:1; }
+  header button, header select { background:var(--panel); color:var(--text); border:1px solid #444;
+    border-radius:8px; padding:6px 10px; font-size:14px; }
+  #log { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+  .msg { max-width:88%; padding:10px 14px; border-radius:14px; white-space:pre-wrap; word-break:break-word; line-height:1.55; }
+  .user { align-self:flex-end; background:var(--me); }
+  .assistant { align-self:flex-start; background:var(--panel); }
+  .err { align-self:center; color:#f88; font-size:14px; }
+  form { display:flex; gap:8px; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid #333; }
+  textarea { flex:1; resize:none; background:var(--panel); color:var(--text); border:1px solid #444;
+    border-radius:12px; padding:10px; font-size:16px; max-height:40vh; }
+  form button { background:var(--accent); color:#fff; border:0; border-radius:12px; padding:0 18px; font-size:16px; }
+  form button:disabled { opacity:.5; }
+  #login { position:fixed; inset:0; background:var(--bg); display:none; flex-direction:column;
+    justify-content:center; padding:24px; gap:14px; }
+  #login input { background:var(--panel); color:var(--text); border:1px solid #444; border-radius:10px; padding:12px; font-size:16px; }
+  #login button { background:var(--accent); color:#fff; border:0; border-radius:10px; padding:12px; font-size:16px; }
+  #login p { color:var(--sub); font-size:14px; line-height:1.6; margin:0; }
+  #toast { position:fixed; left:50%; bottom:90px; transform:translateX(-50%); background:#444; padding:8px 14px;
+    border-radius:20px; font-size:14px; display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>My Claude</h1>
+  <select id="model">
+    <option value="claude-sonnet-5-5">Sonnet 5.5</option>
+    <option value="claude-opus-5-5">Opus 5.5</option>
+    <option value="claude-haiku-5-5">Haiku 5.5</option>
+  </select>
+  <button id="newChat">新規</button>
+  <button id="logout">⚙</button>
+</header>
+<div id="log"></div>
+<form id="form">
+  <textarea id="input" rows="1" placeholder="メッセージを入力"></textarea>
+  <button id="send">送信</button>
+</form>
+
+<div id="login">
+  <h2 style="margin:0">ログイン</h2>
+  <p>Claude APIキー（sk-ant-…）を入力してください。この端末にだけ保存され、次回から自動でログインします。</p>
+  <input id="keyInput" type="password" placeholder="sk-ant-..." autocomplete="off">
+  <button id="saveKey">保存して始める</button>
+</div>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} }
+};
+
+let apiKey = store.get('apiKey', '');
+let history = store.get('history', []);
+$('model').value = store.get('model', 'claude-sonnet-5-5');
+
+function toast(t) { const el = $('toast'); el.textContent = t; el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 2500); }
+
+// ---- 自動ログイン ----
+function showLogin(show) { $('login').style.display = show ? 'flex' : 'none'; }
+showLogin(!apiKey);
+$('saveKey').onclick = () => {
+  const k = $('keyInput').value.trim();
+  if (!k.startsWith('sk-ant-')) { toast('APIキーの形式が正しくありません'); return; }
+  apiKey = k; store.set('apiKey', k); showLogin(false);
+};
+$('logout').onclick = () => {
+  if (confirm('APIキーを削除してログアウトしますか？')) { store.del('apiKey'); apiKey = ''; showLogin(true); }
+};
+
+// ---- 会話表示 ----
+function add(role, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + role; d.textContent = text;
+  $('log').appendChild(d); $('log').scrollTop = $('log').scrollHeight;
+  return d;
+}
+history.forEach(m => add(m.role, m.content));
+$('newChat').onclick = () => { history = []; store.set('history', history); $('log').innerHTML = ''; };
+$('model').onchange = e => store.set('model', e.target.value);
+$('input').addEventListener('input', e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; });
+
+// ---- Claude APIへ送信（ストリーミング） ----
+$('form').onsubmit = async e => {
+  e.preventDefault();
+  const text = $('input').value.trim();
+  if (!text || !apiKey) return;
+  $('input').value = ''; $('input').style.height = 'auto';
+  history.push({ role: 'user', content: text }); store.set('history', history);
+  add('user', text);
+  const bubble = add('assistant', '…');
+  $('send').disabled = true;
+  let reply = '';
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({ model: $('model').value, max_tokens: 4096, stream: true, messages: history })
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      if (res.status === 401) { store.del('apiKey'); apiKey = ''; showLogin(true); }
+      throw new Error(res.status + ' ' + body);
+    }
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    while (true) {
+      const { done, value } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        const ev = JSON.parse(line.slice(5));
+        if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') {
+          reply += ev.delta.text; bubble.textContent = reply; $('log').scrollTop = $('log').scrollHeight;
+        } else if (ev.type === 'error') throw new Error(ev.error.message);
+      }
+    }
+    history.push({ role: 'assistant', content: reply }); store.set('history', history);
+  } catch (err) {
+    bubble.remove(); history.pop(); store.set('history', history);
+    add('err', 'エラー: ' + err.message);
+  } finally { $('send').disabled = false; }
+};
+
+// ---- 自動更新 ----
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    // アプリを開いた時・画面に戻った時に新しい版を確認
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update(); });
+  });
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloaded) return; reloaded = true;
+    if (navigator.serviceWorker.controller) { toast('新しいバージョンに更新しました'); setTimeout(() => location.reload(), 800); }
+  });
+}
+</script>
+</body>
+</html>
